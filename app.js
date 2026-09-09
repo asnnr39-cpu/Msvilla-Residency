@@ -13,6 +13,31 @@
 
 let lastPushedView = null;
 
+// Safe fallbacks for deployments where auth/admin/notifications scripts were
+// omitted. The old startup path would otherwise throw before rendering anything.
+function ensureAppRoot(){
+  if(typeof getApp === "function") app = getApp();
+  if(!app) app = document.querySelector("#app");
+  return app;
+}
+if(typeof window.renderLogin !== "function") window.renderLogin = function(){
+  const root=ensureAppRoot(); if(!root) throw new Error("Missing #app element in index.html");
+  root.innerHTML=`<div class="card" style="max-width:420px;margin:48px auto;padding:24px;"><h1 style="margin-top:0;">Ms Villa</h1><div class="foot-note" style="margin-bottom:18px;">Sign in to continue</div><label>Username</label><input id="login-user" type="text" autocomplete="username" placeholder="e.g. Narendra@35"><label>Password</label><input id="login-pass" type="password" autocomplete="current-password" placeholder="Password"><div class="error" id="login-error" style="display:none;margin:10px 0;"></div><button class="btn-primary" id="login-btn" style="width:100%;">Sign In</button><button class="btn-ghost" id="phone-login-btn" style="width:100%;margin-top:8px;">Use phone login</button></div>`;
+  const login=async()=>{const username=root.querySelector("#login-user").value.trim(),password=root.querySelector("#login-pass").value,member=state.members.find(m=>m.username.toLowerCase()===username.toLowerCase()),err=root.querySelector("#login-error");if(!member||password!==(member.password||DEFAULT_PASSWORD)){err.textContent="Invalid username or password.";err.style.display="block";return;}state.session={username:member.username};try{localStorage.setItem("ms-villa:session",JSON.stringify(state.session));}catch(e){}state.view="home";render();};
+  root.querySelector("#login-btn").onclick=login; root.querySelector("#login-pass").onkeydown=e=>{if(e.key==="Enter")login()}; root.querySelector("#phone-login-btn").onclick=()=>{state.view="phoneLogin";render()};
+};
+if(typeof window.renderPhoneLogin !== "function") window.renderPhoneLogin=function(){const root=ensureAppRoot();root.innerHTML=`<div class="card" style="max-width:420px;margin:48px auto;padding:24px;"><h2>Phone Login</h2><div class="foot-note">Phone/OTP login is unavailable because auth.js is not loaded.</div><button class="btn-primary" id="back-login" style="width:100%;margin-top:14px;">Back to Password Login</button></div>`;root.querySelector("#back-login").onclick=()=>{state.view="login";render()};};
+if(typeof window.renderChangePass !== "function") window.renderChangePass=function(){const root=ensureAppRoot(),me=state.members.find(m=>m.username===state.session?.username);root.innerHTML=`<div class="card" style="max-width:420px;margin:48px auto;padding:24px;"><h2>Change Password</h2><label>Current password</label><input id="cp-old" type="password"><label>New password</label><input id="cp-new" type="password"><div class="error" id="cp-error" style="display:none;"></div><button class="btn-primary" id="cp-save" style="width:100%;">Save Password</button><button class="btn-ghost" id="cp-back" style="width:100%;margin-top:8px;">Back</button></div>`;root.querySelector("#cp-back").onclick=()=>{state.view="settings";render()};root.querySelector("#cp-save").onclick=async()=>{const err=root.querySelector("#cp-error");if(!me){err.textContent="You are not signed in.";err.style.display="block";return;}if(root.querySelector("#cp-old").value!==(me.password||DEFAULT_PASSWORD)){err.textContent="Current password is incorrect.";err.style.display="block";return;}const np=root.querySelector("#cp-new").value;if(np.length<6){err.textContent="New password must be at least 6 characters.";err.style.display="block";return;}me.password=np;await sset("ms-villa:members",state.members);alert("Password changed.");state.view="settings";render()};};
+if(typeof window.notificationStatusLabel !== "function") window.notificationStatusLabel=()=>"Notifications module not loaded";
+if(typeof window.notificationsEnabled !== "function") window.notificationsEnabled=()=>false;
+if(typeof window.subscribeToPush !== "function") window.subscribeToPush=async()=>{};
+if(typeof window.unsubscribeFromPush !== "function") window.unsubscribeFromPush=async()=>{};
+if(typeof window.initNotifications !== "function") window.initNotifications=()=>{};
+if(typeof window.notifyMembers !== "function") window.notifyMembers=()=>{};
+if(typeof window.openEditDutyModal !== "function") window.openEditDutyModal=()=>alert("Admin tools are unavailable: admin.js is not loaded.");
+if(typeof window.openEditExpensesModal !== "function") window.openEditExpensesModal=()=>alert("Admin tools are unavailable: admin.js is not loaded.");
+if(typeof window.openAddMemberModal !== "function") window.openAddMemberModal=()=>alert("Admin tools are unavailable: admin.js is not loaded.");
+
 // --- Room Expenses calendar (Daily Expenses) -------------------------------
 // Transient UI state only (not persisted) — which month is showing and which
 // date is selected in the "tap a date to see that day's expenses" calendar.
@@ -881,16 +906,32 @@ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) syncNow
 window.addEventListener("focus", syncNow);
 window.addEventListener("online", syncNow);
 
-(async function init(){
-  await loadCore();
-  render();
-  initNotifications();
-})();
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
+async function init(){
+  try{
+    await loadCore();
+    // database.js may have been loaded before <div id="app"> existed.
+    // Re-resolve it now that the DOM is ready.
+    if(typeof getApp === "function") app = getApp();
+    if(!app) throw new Error('Missing #app element in index.html');
+    render();
+    if(typeof initNotifications === "function") initNotifications();
+  }catch(err){
+    console.error('[Ms Villa] startup failed:', err);
+    const root = (typeof getApp === 'function' ? getApp() : document.querySelector('#app'));
+    if(root){
+      root.innerHTML = `
+        <div style="font-family:system-ui,sans-serif;padding:28px;max-width:680px;margin:40px auto;color:#111;background:#fff;">
+          <h2 style="margin-top:0;">Ms Villa could not start</h2>
+          <p>The page loaded, but one of the app scripts failed.</p>
+          <pre style="white-space:pre-wrap;background:#f4f4f4;padding:14px;border-radius:8px;overflow:auto;">${String(err && err.stack || err)}</pre>
+          <p style="font-size:13px;color:#666;">Check that database.js, auth.js, admin.js, notifications.js and app.js are all deployed and loaded in that order.</p>
+        </div>`;
+    }
+  }
 }
+
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, {once:true});
+else init();
+
 
 

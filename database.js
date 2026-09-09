@@ -13,10 +13,10 @@ const HOUSE_ICON = `<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M
 
 // Real photos of the house, used as lightly blurred hero backgrounds.
 const IMAGES = {
-  living: "assets/images/living.jpg",
-  kitchen: "assets/images/kitchen.jpg",
-  bedroomA: "assets/images/bedroomA.jpg",
-  bedroomB: "assets/images/bedroomB.jpg"
+  living: "./living.jpg",
+  kitchen: "./kitchen.jpg",
+  bedroomA: "./bedroomA.jpg",
+  bedroomB: "./bedroomB.jpg"
 }
 function heroWrap(imgKey, innerHtml){
   const src = IMAGES[imgKey] || IMAGES.living;
@@ -188,7 +188,11 @@ function effectiveRemaining(ledger){
 }
 
 const $ = (sel, el=document) => el.querySelector(sel);
-const app = $("#app");
+let app = null;
+function getApp(){
+  if(!app || !document.body.contains(app)) app = $("#app");
+  return app;
+}
 const todayKey = () => new Date().toISOString().slice(0,10);
 const nameFor = (username, members) => (members.find(m=>m.username===username)||{}).name || username;
 const inr = (n) => (n<0? "-₹" + Math.abs(n).toLocaleString("en-IN") : "₹" + n.toLocaleString("en-IN"));
