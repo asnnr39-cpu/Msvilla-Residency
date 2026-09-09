@@ -12,7 +12,8 @@ function renderLogin(){
   app.innerHTML = `
     ${heroWrap("living", `
       <div class="crest">
-        <img class="crest-logo" src="./logo.png" alt="Ms Villa">
+        <div class="mark">${HOUSE_ICON}</div>
+        <h1>Ms Villa</h1>
         <div class="sub">Resident Portal</div>
         <div class="dots"><span></span><span></span><span></span><span></span><span></span></div>
       </div>
@@ -23,6 +24,10 @@ function renderLogin(){
       <select id="login-user">${options}</select>
       <label>Password</label>
       <input type="password" id="login-pass" placeholder="Enter password">
+      <label class="checkbox-row" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+        <input type="checkbox" id="login-remember" checked style="width:auto;">
+        <span style="font-size:13px;">Keep me logged in</span>
+      </label>
       <div class="error" id="login-error" style="display:none;"></div>
       <button class="btn-primary" id="login-btn">Sign In</button>
     </div>
@@ -33,9 +38,10 @@ function renderLogin(){
   $("#login-btn").onclick = ()=>{
     const u = $("#login-user").value;
     const p = $("#login-pass").value;
+    const remember = $("#login-remember").checked;
     const member = state.members.find(m=>m.username===u);
     if(member && member.password===p){
-      state.session = { username: u };
+      state.session = { username: u, remember };
       state.view = "home";
       render();
       askToEnableNotifications();
@@ -52,7 +58,8 @@ function renderPhoneLogin(){
   app.innerHTML = `
     ${heroWrap("living", `
       <div class="crest">
-        <img class="crest-logo" src="./logo.png" alt="Ms Villa">
+        <div class="mark">${HOUSE_ICON}</div>
+        <h1>Ms Villa</h1>
         <div class="sub">Sign in with mobile number</div>
       </div>
     `)}
@@ -65,6 +72,10 @@ function renderPhoneLogin(){
       <div id="otp-verify-block" style="display:none; margin-top:16px;">
         <label>Enter the 6-digit code</label>
         <div class="otp-box"><input type="text" id="otp-code" maxlength="6"></div>
+        <label class="checkbox-row" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+          <input type="checkbox" id="otp-remember" checked style="width:auto;">
+          <span style="font-size:13px;">Keep me logged in</span>
+        </label>
         <button class="btn-primary" id="otp-verify">Verify &amp; Sign In</button>
       </div>
     </div>
@@ -89,7 +100,8 @@ function renderPhoneLogin(){
     const p = state.pendingOtp;
     if(!p || Date.now() > p.expiresAt){ err.style.display="block"; err.textContent="Code expired. Send a new one."; return; }
     if(entered !== p.code){ err.style.display="block"; err.textContent="That code doesn't match."; return; }
-    state.session = { username: p.username };
+    const remember = $("#otp-remember").checked;
+    state.session = { username: p.username, remember };
     state.pendingOtp = null;
     state.view = "home";
     render();
