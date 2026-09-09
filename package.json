@@ -1,0 +1,18 @@
+{
+  "name": "ms-villa-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ms Villa resident portal — duty roster, expenses, complaints, meetings, and push notifications.",
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "generate-vapid-keys": "web-push generate-vapid-keys"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.38.0"
+  }
+}

@@ -1,0 +1,35 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Scheduled function: checks upcoming meetings and today's duty roster and
+# sends push reminders. The cron expression here is what Netlify actually
+# reads to schedule the run; the `config.schedule` export inside the
+# function file is used by `netlify dev` for local testing and should be
+# kept in sync with this.
+[functions."scheduled-reminders"]
+  schedule = "*/15 * * * *"
+
+# Service worker must never be served from cache / a stale CDN copy, or
+# residents can get stuck on an old version that can't receive pushes.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Single-page-app style fallback so deep links (e.g. #settings after a
+# refresh) still load the app shell instead of a 404. Netlify only applies
+# this when no real file or function already matches the request path, so
+# it does not interfere with /.netlify/functions/* routes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
