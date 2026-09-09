@@ -149,8 +149,7 @@ const ICONS = {
   rent: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></svg>`,
   complaints: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v4M12 15h.01"/></svg>`,
   meetings: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9l4-2v10l-4-2"/></svg>`,
-  chat: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.1-3.3A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 11.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg>`,
-  dailyExpenses: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M12 12.5v5M10 13.3h4a1.2 1.2 0 0 1 0 2.4h-4a1.2 1.2 0 0 0 0 2.4h4"/></svg>`
+  chat: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.1-3.3A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 11.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg>`
 };
 
 const ROOM_NOTES = {
@@ -188,31 +187,31 @@ function effectiveRemaining(ledger){
   return ledger.remainingAuto ? (effectiveTotalBills(ledger) - sumPaid(ledger)) : (Number(ledger.remaining)||0);
 }
 
-// --- Daily Expenses helpers -------------------------------------------
-// A simple day-wise spending log, separate from the monthly Room Expenses
-// ledger above. Open to every member (not admin-only) — each entry is
-// { id, date: "YYYY-MM-DD", amount: number, note: string, addedBy: username }.
-function sumDailyExpenses(list){
-  return (list||[]).reduce((s,e)=> s + (Number(e.amount)||0), 0);
-}
-function dailyExpensesForMonth(list, monthKey){
-  return (list||[]).filter(e => (e.date||"").slice(0,7) === monthKey);
-}
-// Human-readable label for a "YYYY-MM-DD" key, used to group the daily
-// expenses log day-wise (e.g. "Tue, 09 Sep 2026"). Falls back to the raw
-// string if it doesn't parse as a date.
-function formatDayLabel(dateStr){
-  if(!dateStr) return "No date";
-  const d = new Date(dateStr+"T00:00:00");
-  if(isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-IN", { weekday:"short", day:"2-digit", month:"short", year:"numeric" });
-}
-
 const $ = (sel, el=document) => el.querySelector(sel);
 const app = $("#app");
 const todayKey = () => new Date().toISOString().slice(0,10);
 const nameFor = (username, members) => (members.find(m=>m.username===username)||{}).name || username;
 const inr = (n) => (n<0? "-₹" + Math.abs(n).toLocaleString("en-IN") : "₹" + n.toLocaleString("en-IN"));
+
+// --- Daily expenses (per-day itemized entries, shown on the Room Expenses calendar) ---
+// Unlike todayKey() (UTC-based, used for attendance), these use the LOCAL calendar date,
+// since the calendar UI is about what day someone actually looks at on their phone.
+function ymd(date){
+  const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,"0"), d = String(date.getDate()).padStart(2,"0");
+  return `${y}-${m}-${d}`;
+}
+const todayLocalKey = () => ymd(new Date());
+function dailyExpensesFor(dateKey){
+  return state.dailyExpenses.filter(e=>e.date===dateKey).sort((a,b)=> new Date(a.createdAt)-new Date(b.createdAt));
+}
+function dailyExpensesTotalFor(dateKey){
+  return dailyExpensesFor(dateKey).reduce((s,e)=> s + (Number(e.amount)||0), 0);
+}
+function dailyExpensesTotalForMonth(year, month){
+  // month is 0-indexed
+  const prefix = `${year}-${String(month+1).padStart(2,"0")}`;
+  return state.dailyExpenses.filter(e=>e.date.startsWith(prefix)).reduce((s,e)=> s + (Number(e.amount)||0), 0);
+}
 
 let state = {
   members: null,
@@ -225,8 +224,8 @@ let state = {
   waterDuty: null,
   weeklyVesselDuty: null,
   ledger: null,
-  meetings: [],
   dailyExpenses: [],
+  meetings: [],
   supportPhone: null,
   session: null,   // {username}
   view: "login",
@@ -289,9 +288,9 @@ async function loadCore(){
   // to "off" so existing figures don't silently change for anyone already using the app.
   if(ledger.totalBillsAuto===undefined) ledger.totalBillsAuto = false;
   if(ledger.remainingAuto===undefined) ledger.remainingAuto = false;
+  let dailyExpenses = await sget("ms-villa:daily-expenses") || [];
   let meetings = await sget("ms-villa:meetings") || [];
   let supportPhone = await sget("ms-villa:support-phone") || "";
-  let dailyExpenses = await sget("ms-villa:daily-expenses") || [];
 
   state.members = members;
   state.rooms = rooms;
@@ -302,9 +301,9 @@ async function loadCore(){
   state.waterDuty = waterDuty;
   state.weeklyVesselDuty = weeklyVesselDuty;
   state.ledger = ledger;
+  state.dailyExpenses = dailyExpenses;
   state.meetings = meetings;
   state.supportPhone = supportPhone;
-  state.dailyExpenses = dailyExpenses;
 }
 
 async function loadAttendance(roomId, date){
