@@ -1,4 +1,3 @@
-
 // ms-villa-app / js/database.js
 //
 // App-wide constants (default members, rooms, duty rosters, ledger seed,
@@ -14,10 +13,10 @@ const HOUSE_ICON = `<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M
 
 // Real photos of the house, used as lightly blurred hero backgrounds.
 const IMAGES = {
-  living: "./living.jpg",
-  kitchen: "./kitchen.jpg",
-  bedroomA: "./bedroomA.jpg",
-  bedroomB: "./bedroomB.jpg"
+  living: "assets/images/living.jpg",
+  kitchen: "assets/images/kitchen.jpg",
+  bedroomA: "assets/images/bedroomA.jpg",
+  bedroomB: "assets/images/bedroomB.jpg"
 }
 function heroWrap(imgKey, innerHtml){
   const src = IMAGES[imgKey] || IMAGES.living;
@@ -150,6 +149,7 @@ const ICONS = {
   rent: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 15h4"/></svg>`,
   complaints: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v4M12 15h.01"/></svg>`,
   meetings: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 9l4-2v10l-4-2"/></svg>`,
+  dailyExpenses: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>`,
   chat: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.1-3.3A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 11.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg>`
 };
 
@@ -189,34 +189,10 @@ function effectiveRemaining(ledger){
 }
 
 const $ = (sel, el=document) => el.querySelector(sel);
-let app = null;
-function getApp(){
-  if(!app || !document.body.contains(app)) app = $("#app");
-  return app;
-}
+const app = $("#app");
 const todayKey = () => new Date().toISOString().slice(0,10);
 const nameFor = (username, members) => (members.find(m=>m.username===username)||{}).name || username;
 const inr = (n) => (n<0? "-₹" + Math.abs(n).toLocaleString("en-IN") : "₹" + n.toLocaleString("en-IN"));
-
-// --- Daily expenses (per-day itemized entries, shown on the Room Expenses calendar) ---
-// Unlike todayKey() (UTC-based, used for attendance), these use the LOCAL calendar date,
-// since the calendar UI is about what day someone actually looks at on their phone.
-function ymd(date){
-  const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,"0"), d = String(date.getDate()).padStart(2,"0");
-  return `${y}-${m}-${d}`;
-}
-const todayLocalKey = () => ymd(new Date());
-function dailyExpensesFor(dateKey){
-  return state.dailyExpenses.filter(e=>e.date===dateKey).sort((a,b)=> new Date(a.createdAt)-new Date(b.createdAt));
-}
-function dailyExpensesTotalFor(dateKey){
-  return dailyExpensesFor(dateKey).reduce((s,e)=> s + (Number(e.amount)||0), 0);
-}
-function dailyExpensesTotalForMonth(year, month){
-  // month is 0-indexed
-  const prefix = `${year}-${String(month+1).padStart(2,"0")}`;
-  return state.dailyExpenses.filter(e=>e.date.startsWith(prefix)).reduce((s,e)=> s + (Number(e.amount)||0), 0);
-}
 
 let state = {
   members: null,
@@ -229,54 +205,14 @@ let state = {
   waterDuty: null,
   weeklyVesselDuty: null,
   ledger: null,
-  dailyExpenses: [],
   meetings: [],
+  dailyExpenses: [], // {id, date:"YYYY-MM-DD", amount, reason, photo, addedBy, createdAt}
   supportPhone: null,
   session: null,   // {username}
   view: "login",
   roomId: null,
   pendingOtp: null // {phone, code, expiresAt}
 };
-
-// --- Session persistence ("Keep me logged in") -----------------------------
-// If the user checks "Keep me logged in", the session survives closing the
-// browser/app entirely (localStorage). If left unchecked, the session still
-// survives a plain page refresh for convenience, but only for that browser
-// tab/session (sessionStorage) — closing the tab signs them out.
-const SESSION_KEY = "ms-villa:session";
-const SESSION_REMEMBER_KEY = "ms-villa:remember";
-
-function persistSession(session, remember){
-  try{
-    if(remember){
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      localStorage.setItem(SESSION_REMEMBER_KEY, "1");
-      sessionStorage.removeItem(SESSION_KEY);
-    } else {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(SESSION_REMEMBER_KEY);
-    }
-  }catch(e){ /* storage unavailable (private browsing, etc.) - session just won't survive a refresh */ }
-}
-function loadSession(){
-  try{
-    if(localStorage.getItem(SESSION_REMEMBER_KEY)){
-      const raw = localStorage.getItem(SESSION_KEY);
-      if(raw) return JSON.parse(raw);
-    }
-    const raw2 = sessionStorage.getItem(SESSION_KEY);
-    if(raw2) return JSON.parse(raw2);
-  }catch(e){}
-  return null;
-}
-function clearSession(){
-  try{
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(SESSION_REMEMBER_KEY);
-    sessionStorage.removeItem(SESSION_KEY);
-  }catch(e){}
-}
 
 // --- Shared storage layer -------------------------------------------------
 // This app used to run inside a Claude artifact, backed by window.storage.
@@ -333,8 +269,8 @@ async function loadCore(){
   // to "off" so existing figures don't silently change for anyone already using the app.
   if(ledger.totalBillsAuto===undefined) ledger.totalBillsAuto = false;
   if(ledger.remainingAuto===undefined) ledger.remainingAuto = false;
-  let dailyExpenses = await sget("ms-villa:daily-expenses") || [];
   let meetings = await sget("ms-villa:meetings") || [];
+  let dailyExpenses = await sget("ms-villa:daily-expenses") || [];
   let supportPhone = await sget("ms-villa:support-phone") || "";
 
   state.members = members;
@@ -346,9 +282,20 @@ async function loadCore(){
   state.waterDuty = waterDuty;
   state.weeklyVesselDuty = weeklyVesselDuty;
   state.ledger = ledger;
-  state.dailyExpenses = dailyExpenses;
   state.meetings = meetings;
+  state.dailyExpenses = dailyExpenses;
   state.supportPhone = supportPhone;
+}
+
+// --- Daily Expenses helpers -------------------------------------------
+function dailyExpensesFor(date){
+  return state.dailyExpenses.filter(e=>e.date===date);
+}
+function dailyExpensesTotalFor(date){
+  return dailyExpensesFor(date).reduce((s,e)=> s + (Number(e.amount)||0), 0);
+}
+async function saveDailyExpenses(){
+  await sset("ms-villa:daily-expenses", state.dailyExpenses);
 }
 
 async function loadAttendance(roomId, date){
@@ -358,6 +305,46 @@ async function loadAttendance(roomId, date){
 async function saveAttendance(roomId, date, data){
   const key = `ms-villa:attendance:${roomId}:${date}`;
   await sset(key, data);
+}
+
+// --- Session persistence ---------------------------------------------
+// auth.js sets state.session on successful login but (until now) never
+// persisted it, so any refresh reset state.session to null and bounced
+// the user back to the login screen. These helpers save/restore it so a
+// refresh keeps you signed in. "Remember me" (localStorage, survives
+// closing the browser) is the default; a session-only flavor
+// (sessionStorage, cleared when the tab/browser closes but survives a
+// plain refresh) is available for a "keep me logged in" checkbox once
+// it exists in auth.js — see persistSession(session, remember).
+const SESSION_KEY = "ms-villa:session";
+
+function persistSession(session, remember){
+  if(remember === undefined) remember = true; // default: stay signed in
+  if(session){
+    const payload = JSON.stringify(session);
+    if(remember){
+      localStorage.setItem(SESSION_KEY, payload);
+      sessionStorage.removeItem(SESSION_KEY);
+    } else {
+      sessionStorage.setItem(SESSION_KEY, payload);
+      localStorage.removeItem(SESSION_KEY);
+    }
+  } else {
+    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+  }
+}
+
+function restoreSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+    if(!raw) return null;
+    const session = JSON.parse(raw);
+    if(session && session.username && state.members.some(m=>m.username===session.username)){
+      return session;
+    }
+  }catch(e){}
+  return null;
 }
 
 function vesselOrder(){ return state.members.map(m=>m.username); }
@@ -370,3 +357,4 @@ function cookingStaffFor(date){
   if(state.cookingOverrides[date] && state.cookingOverrides[date].length) return state.cookingOverrides[date];
   return state.cookingStaff;
 }
+
