@@ -378,71 +378,800 @@ function renderExpenses(){
 // household spending (groceries, gas, quick repairs, etc.), grouped by
 // the date each entry was logged under.
 function renderDailyExpenses(){
-  const list = (state.dailyExpenses||[]).slice().sort((a,b)=>
-    (b.date||"").localeCompare(a.date||"") || (b.id||"").localeCompare(a.id||"")
-  );
-  const monthKey = todayKey().slice(0,7);
-  const monthTotal = sumDailyExpenses(dailyExpensesForMonth(list, monthKey));
-  const grandTotal = sumDailyExpenses(list);
+  /* =========================================================
+   DAILY EXPENSES CALENDAR
+   ========================================================= */
 
-  const groups = {};
-  list.forEach(e=>{
-    const d = e.date || "";
-    if(!groups[d]) groups[d] = [];
-    groups[d].push(e);
-  });
-  const dateKeys = Object.keys(groups).sort((a,b)=> b.localeCompare(a));
+let dailyExpenseCalendarMonth = new Date();
+let selectedDailyExpenseDate = todayKey();
 
-  const daysHtml = dateKeys.map(d=>{
-    const entries = groups[d];
-    const dayTotal = sumDailyExpenses(entries);
-    const rows = entries.map(e=>`
-      <div class="member-row">
-        <div class="left"><div>
-          <div class="name">${e.note || "Expense"}</div>
-          <div class="tag">${e.addedBy ? "Added by " + nameFor(e.addedBy, state.members) : ""}</div>
-        </div></div>
-        <div class="tag" style="font-size:14px; font-weight:700; color:var(--ink);">${inr(Number(e.amount)||0)}</div>
-      </div>
-    `).join("");
-    return `
-      <div class="card" style="padding:14px 16px 4px;">
-        <div class="dues-top" style="margin-bottom:2px;">
-          <div class="dues-label" style="text-transform:none; letter-spacing:0; font-size:13px; color:var(--ink); font-weight:700;">${formatDayLabel(d)}</div>
-          <b style="font-family:'Cormorant Garamond',serif; font-style:italic; font-size:17px; color:var(--accent);">${inr(dayTotal)}</b>
-        </div>
-        ${rows}
-      </div>
-    `;
-  }).join("") || `<div class="foot-note" style="padding:20px 0;">No expenses recorded yet. Anyone in the house can add one below.</div>`;
+function ensureDailyExpensesCalendarStyles(){
+  if(document.getElementById("daily-expenses-calendar-styles")) return;
 
-  app.innerHTML = `
-    ${topbar("Daily Expenses","home")}
-    ${heroWrap("kitchen", `
-      <div class="house-title" style="padding-top:0;">
-        <h1 style="font-size:26px;">Daily Expenses</h1>
-        <div class="sub">Day-wise spending log</div>
-      </div>
-    `)}
-    <div class="section-title">This Month</div>
-    <div class="card dues-card">
-      <div class="dues-top">
-        <div class="dues-label">Spent in ${monthKey}</div>
-      </div>
-      <div class="dues-amount">${inr(monthTotal)}</div>
-      <div class="dues-note">All-time total: ${inr(grandTotal)}</div>
-    </div>
-    <div class="nav-row"><button class="btn-primary" id="add-daily-expense" style="flex:1;">+ Add Expense</button></div>
-    <div class="section-title">Day-wise Log</div>
-    ${daysHtml}
-    <div class="foot-note" style="padding:4px 18px 0;">Everyone in the house can add, edit, or remove entries here.</div>
+  const style = document.createElement("style");
+  style.id = "daily-expenses-calendar-styles";
+
+  style.textContent = `
+    .daily-calendar-card {
+      padding: 12px;
+    }
+
+    .daily-cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .daily-cal-month {
+      text-align: center;
+      font-size: 21px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .daily-cal-month span {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: 0;
+      margin-top: 2px;
+    }
+
+    .daily-cal-nav {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--soft);
+      color: var(--ink);
+      font-size: 28px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .daily-cal-weekdays,
+    .daily-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 5px;
+    }
+
+    .daily-cal-weekdays {
+      margin-bottom: 5px;
+    }
+
+    .daily-cal-weekdays div {
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      padding: 5px 0;
+    }
+
+    .daily-cal-day {
+      min-height: 58px;
+      padding: 5px 3px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: var(--soft);
+      color: var(--ink);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      font-family: inherit;
+    }
+
+    .daily-cal-day:hover {
+      border-color: var(--accent);
+    }
+
+    .daily-cal-day.selected {
+      border: 2px solid var(--accent);
+      background: var(--accent-soft, var(--soft));
+    }
+
+    .daily-cal-number {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 20px;
+    }
+
+    .daily-cal-day.has-expense .daily-cal-number {
+      font-weight: 800;
+    }
+
+    .daily-cal-amount {
+      display: block;
+      margin-top: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--accent);
+      white-space: nowrap;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .daily-cal-empty {
+      min-height: 58px;
+    }
   `;
-  $("#add-daily-expense").onclick = ()=> openEditDailyExpensesModal();
+
+  document.head.appendChild(style);
 }
 
-// Open to every signed-in member (unlike the Room Expenses ledger, which
-// is admin-only) since day-to-day spending is meant to be logged by
-// whoever actually paid for something.
+
+function renderDailyExpenses(){
+
+  ensureDailyExpensesCalendarStyles();
+
+  const list = (state.dailyExpenses || []).slice();
+
+  /* -------------------------------------------------------
+     CURRENT CALENDAR MONTH
+     ------------------------------------------------------- */
+
+  const calYear =
+    dailyExpenseCalendarMonth.getFullYear();
+
+  const calMonth =
+    dailyExpenseCalendarMonth.getMonth();
+
+  const monthKey =
+    calYear +
+    "-" +
+    String(calMonth + 1).padStart(2, "0");
+
+
+  /* -------------------------------------------------------
+     SELECTED DATE
+     ------------------------------------------------------- */
+
+  if(!selectedDailyExpenseDate.startsWith(monthKey)){
+    selectedDailyExpenseDate =
+      monthKey + "-01";
+  }
+
+
+  /* -------------------------------------------------------
+     SELECTED DAY EXPENSES
+     ------------------------------------------------------- */
+
+  const selectedExpenses =
+    list
+      .filter(e => e.date === selectedDailyExpenseDate)
+      .sort((a,b) =>
+        (b.id || "").localeCompare(a.id || "")
+      );
+
+  const selectedTotal =
+    sumDailyExpenses(selectedExpenses);
+
+
+  /* -------------------------------------------------------
+     MONTH TOTAL
+     ------------------------------------------------------- */
+
+  const monthExpenses =
+    dailyExpensesForMonth(
+      list,
+      monthKey
+    );
+
+  const monthTotal =
+    sumDailyExpenses(monthExpenses);
+
+
+  /* -------------------------------------------------------
+     ALL-TIME TOTAL
+     ------------------------------------------------------- */
+
+  const grandTotal =
+    sumDailyExpenses(list);
+
+
+  /* -------------------------------------------------------
+     GROUP EXPENSES BY DATE
+     ------------------------------------------------------- */
+
+  const byDate = {};
+
+  list.forEach(e => {
+
+    if(!e.date) return;
+
+    if(!byDate[e.date]){
+      byDate[e.date] = [];
+    }
+
+    byDate[e.date].push(e);
+
+  });
+
+
+  /* -------------------------------------------------------
+     CALENDAR INFORMATION
+     ------------------------------------------------------- */
+
+  const firstDay =
+    new Date(
+      calYear,
+      calMonth,
+      1
+    );
+
+  // Monday = 0
+  const startOffset =
+    (firstDay.getDay() + 6) % 7;
+
+  const daysInMonth =
+    new Date(
+      calYear,
+      calMonth + 1,
+      0
+    ).getDate();
+
+
+  const monthNames = [
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEPT",
+    "OCT",
+    "NOV",
+    "DEC"
+  ];
+
+
+  /* -------------------------------------------------------
+     BUILD CALENDAR
+     ------------------------------------------------------- */
+
+  let calendarCells = "";
+
+
+  // Empty cells before first day
+  for(
+    let i = 0;
+    i < startOffset;
+    i++
+  ){
+
+    calendarCells += `
+      <div class="daily-cal-empty"></div>
+    `;
+
+  }
+
+
+  // Calendar dates
+  for(
+    let day = 1;
+    day <= daysInMonth;
+    day++
+  ){
+
+    const dateKey =
+      monthKey +
+      "-" +
+      String(day).padStart(2, "0");
+
+
+    const dayExpenses =
+      byDate[dateKey] || [];
+
+
+    const dayTotal =
+      sumDailyExpenses(dayExpenses);
+
+
+    const selected =
+      dateKey === selectedDailyExpenseDate;
+
+
+    const hasExpense =
+      dayExpenses.length > 0;
+
+
+    calendarCells += `
+
+      <button
+        type="button"
+        class="daily-cal-day
+          ${selected ? "selected" : ""}
+          ${hasExpense ? "has-expense" : ""}"
+        data-daily-date="${dateKey}"
+      >
+
+        <span class="daily-cal-number">
+          ${day}
+        </span>
+
+        ${
+          hasExpense
+          ?
+          `
+            <span class="daily-cal-amount">
+              ${inr(dayTotal)}
+            </span>
+          `
+          :
+          ""
+        }
+
+      </button>
+
+    `;
+
+  }
+
+
+  /* -------------------------------------------------------
+     SELECTED DAY DISPLAY
+     ------------------------------------------------------- */
+
+  let selectedHtml;
+
+
+  if(selectedExpenses.length){
+
+    const rows =
+      selectedExpenses
+        .map(e => `
+
+          <div
+            class="member-row"
+            style="
+              padding:13px 0;
+              align-items:center;
+            "
+          >
+
+            <div class="left">
+
+              <div>
+
+                <div class="name">
+                  ${e.note || "Expense"}
+                </div>
+
+                ${
+                  e.addedBy
+                  ?
+                  `
+                    <div class="tag">
+                      Added by
+                      ${nameFor(
+                        e.addedBy,
+                        state.members
+                      )}
+                    </div>
+                  `
+                  :
+                  ""
+                }
+
+              </div>
+
+            </div>
+
+
+            <div
+              style="
+                font-size:15px;
+                font-weight:700;
+                color:var(--ink);
+                white-space:nowrap;
+              "
+            >
+
+              ${inr(
+                Number(e.amount) || 0
+              )}
+
+            </div>
+
+          </div>
+
+        `)
+        .join("");
+
+
+    selectedHtml = `
+
+      <div
+        class="card"
+        style="
+          padding:14px 16px 4px;
+        "
+      >
+
+        <div
+          class="dues-top"
+          style="
+            margin-bottom:4px;
+          "
+        >
+
+          <div>
+
+            <div
+              class="dues-label"
+              style="
+                text-transform:none;
+                letter-spacing:0;
+                font-size:15px;
+                color:var(--ink);
+                font-weight:700;
+              "
+            >
+
+              ${formatDayLabel(
+                selectedDailyExpenseDate
+              )}
+
+            </div>
+
+
+            <div
+              style="
+                font-size:12px;
+                color:var(--muted);
+                margin-top:3px;
+              "
+            >
+
+              ${selectedExpenses.length}
+
+              expense${
+                selectedExpenses.length === 1
+                ? ""
+                : "s"
+              }
+
+            </div>
+
+          </div>
+
+
+          <b
+            style="
+              font-family:
+                'Cormorant Garamond',
+                serif;
+              font-style:italic;
+              font-size:19px;
+              color:var(--accent);
+            "
+          >
+
+            ${inr(selectedTotal)}
+
+          </b>
+
+        </div>
+
+
+        ${rows}
+
+      </div>
+
+    `;
+
+  } else {
+
+    selectedHtml = `
+
+      <div
+        class="card"
+        style="
+          padding:22px 16px;
+          text-align:center;
+        "
+      >
+
+        <div
+          style="
+            font-size:14px;
+            font-weight:600;
+            color:var(--ink);
+          "
+        >
+
+          No expenses on this day
+
+        </div>
+
+
+        <div
+          style="
+            font-size:12px;
+            color:var(--muted);
+            margin-top:5px;
+          "
+        >
+
+          Tap "+ Add Expense"
+          to record spending.
+
+        </div>
+
+      </div>
+
+    `;
+
+  }
+
+
+  /* -------------------------------------------------------
+     PAGE
+     ------------------------------------------------------- */
+
+  app.innerHTML = `
+
+    ${topbar(
+      "Daily Expenses",
+      "home"
+    )}
+
+
+    ${heroWrap(
+      "kitchen",
+      `
+
+        <div
+          class="house-title"
+          style="padding-top:0;"
+        >
+
+          <h1 style="font-size:26px;">
+            Daily Expenses
+          </h1>
+
+          <div class="sub">
+            Select a date to see
+            that day's spending
+          </div>
+
+        </div>
+
+      `
+    )}
+
+
+    <div class="section-title">
+      Calendar
+    </div>
+
+
+    <div
+      class="card daily-calendar-card"
+    >
+
+      <div class="daily-cal-header">
+
+        <button
+          type="button"
+          class="daily-cal-nav"
+          id="daily-cal-prev"
+          aria-label="Previous month"
+        >
+          ‹
+        </button>
+
+
+        <div class="daily-cal-month">
+
+          ${monthNames[calMonth]}
+
+          <span>
+            ${calYear}
+          </span>
+
+        </div>
+
+
+        <button
+          type="button"
+          class="daily-cal-nav"
+          id="daily-cal-next"
+          aria-label="Next month"
+        >
+          ›
+        </button>
+
+      </div>
+
+
+      <div class="daily-cal-weekdays">
+
+        <div>M</div>
+        <div>T</div>
+        <div>W</div>
+        <div>T</div>
+        <div>F</div>
+        <div>S</div>
+        <div>S</div>
+
+      </div>
+
+
+      <div class="daily-cal-grid">
+
+        ${calendarCells}
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:10px;
+          font-size:11px;
+          color:var(--muted);
+          text-align:center;
+        "
+      >
+
+        Tap any date to view
+        expenses spent that day.
+
+      </div>
+
+    </div>
+
+
+    <div class="section-title">
+      Selected Day
+    </div>
+
+
+    ${selectedHtml}
+
+
+    <div class="nav-row">
+
+      <button
+        class="btn-primary"
+        id="add-daily-expense"
+        style="flex:1;"
+      >
+
+        + Add Expense
+
+      </button>
+
+    </div>
+
+
+    <div class="section-title">
+
+      ${monthNames[calMonth]}
+      Summary
+
+    </div>
+
+
+    <div class="card dues-card">
+
+      <div class="dues-top">
+
+        <div class="dues-label">
+
+          Spent in
+          ${monthNames[calMonth]}
+
+        </div>
+
+      </div>
+
+
+      <div class="dues-amount">
+
+        ${inr(monthTotal)}
+
+      </div>
+
+
+      <div class="dues-note">
+
+        All-time total:
+        ${inr(grandTotal)}
+
+      </div>
+
+    </div>
+
+
+    <div
+      class="foot-note"
+      style="padding:4px 18px 0;"
+    >
+
+      Everyone in the house can
+      add, edit, or remove entries.
+
+    </div>
+
+  `;
+
+
+  /* -------------------------------------------------------
+     DATE CLICK
+     ------------------------------------------------------- */
+
+  app
+    .querySelectorAll(
+      "[data-daily-date]"
+    )
+    .forEach(btn => {
+
+      btn.onclick = () => {
+
+        selectedDailyExpenseDate =
+          btn.getAttribute(
+            "data-daily-date"
+          );
+
+        renderDailyExpenses();
+
+      };
+
+    });
+
+
+  /* -------------------------------------------------------
+     PREVIOUS MONTH
+     ------------------------------------------------------- */
+
+  $("#daily-cal-prev").onclick = () => {
+
+    dailyExpenseCalendarMonth =
+      new Date(
+        calYear,
+        calMonth - 1,
+        1
+      );
+
+    renderDailyExpenses();
+
+  };
+
+
+  /* -------------------------------------------------------
+     NEXT MONTH
+     ------------------------------------------------------- */
+
+  $("#daily-cal-next").onclick = () => {
+
+    dailyExpenseCalendarMonth =
+      new Date(
+        calYear,
+        calMonth + 1,
+        1
+      );
+
+    renderDailyExpenses();
+
+  };
+
+
+  /* -------------------------------------------------------
+     ADD EXPENSE
+     ------------------------------------------------------- */
+
+  $("#add-daily-expense").onclick =
+    () => openEditDailyExpensesModal();
+
+}
 function openEditDailyExpensesModal(){
   const draft = JSON.parse(JSON.stringify(state.dailyExpenses||[]));
   const wrap = document.createElement("div");
